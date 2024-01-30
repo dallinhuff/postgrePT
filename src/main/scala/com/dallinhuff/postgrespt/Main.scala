@@ -13,14 +13,20 @@ object Main extends IOApp.Simple:
       List(
         CompletionMessage(
           "system",
-          "You are a poetic assistant, skilled in explaining complex programming concepts with creative flair"
+          "You are a program that generates fully-formed SQL queries from natural language prompts. " +
+            "Respond to prompts from the user in only fully-formed SQL queries with no explanations"
         ),
         CompletionMessage(
           "user",
-          "Compose a poem that explains the concept of recursion in programming"
+          "get all of the rows from the user table"
         )
       )
     )
+
+  val clientResource: Resource[IO, Client[IO]] =
+    EmberClientBuilder
+      .default[IO]
+      .build
 
   def sendRequest(client: Client[IO])(request: Request[IO]): IO[Unit] =
     client
@@ -28,7 +34,6 @@ object Main extends IOApp.Simple:
       .flatMap(IO.println)
 
   val run: IO[Unit] =
-    EmberClientBuilder
-      .default[IO]
-      .build
-      .use(client => sendRequest(client)(request))
+    for
+      _ <- clientResource.use(sendRequest(_)(request))
+    yield ()
