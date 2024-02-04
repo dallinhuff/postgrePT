@@ -2,7 +2,7 @@
 
 create type brand_quality as enum('luxury', 'mid', 'drug_store');
 
-create table brand (
+create table if not exists brand (
     id      bigserial
             primary key,
     name    varchar(32)

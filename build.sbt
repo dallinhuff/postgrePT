@@ -2,7 +2,7 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 
 ThisBuild / scalaVersion := "3.3.1"
 
-resolvers += "openai4s packages" at "https://maven.pkg.github.com/dallinhuff/openai4s"
+lazy val openai4s = RootProject(uri("https://github.com/dallinhuff/openai4s.git#v0.1.2-SNAPSHOT"))
 
 lazy val root = (project in file("."))
   .settings(
@@ -12,8 +12,10 @@ lazy val root = (project in file("."))
       "org.http4s"     %% "http4s-dsl"          % "0.23.18",
       "org.http4s"     %% "http4s-ember-client" % "0.23.18",
       "org.http4s"     %% "http4s-circe"        % "0.23.19",
+      "org.tpolecat"   %% "skunk-core"          % "0.6.2",
       "io.circe"       %% "circe-generic"       % "0.14.6",
       "io.circe"       %% "circe-literal"       % "0.14.6",
-      "com.dallinhuff" %% "openai4s"            % "0.1.1-SNAPSHOT"
+      "org.postgresql" % "postgresql"           % "42.5.4"
     )
   )
+  .dependsOn(openai4s)
