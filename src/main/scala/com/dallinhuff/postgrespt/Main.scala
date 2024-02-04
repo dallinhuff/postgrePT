@@ -7,31 +7,31 @@ import com.dallinhuff.openai4s.entities.chat
 import com.dallinhuff.openai4s.entities.chat.*
 import com.dallinhuff.postgrespt.prompt.*
 
-import java.sql.{Connection, DriverManager, ResultSet, Statement}
+import java.sql.{Connection, DriverManager, Statement}
 
 object Main extends IOApp.Simple:
 
   private val key = OpenAIKey(Option(System.getenv("OPEN_AI_KEY")).getOrElse(""))
 
-  def run: IO[Unit] =
-    repl.foreverM
+  def run: IO[Unit] = repl.foreverM
 
   private val repl: IO[Unit] =
     for
-      _ <- IO.println("ask me something about your makeup:")
-      question <- IO.readLine
-      _ <- IO.println("generating query...")
-      query <- generateQuery(question)
-      _ <- IO.println(s"Query:\n$query\n")
-      _ <- IO.println("checking db...")
-      result <- IO.blocking(sendQuery(query))
+      _            <- IO.println("ask me something about your makeup:")
+      question     <- IO.readLine
+      _            <- IO.println("generating query...")
+      query        <- generateQuery(question)
+      _            <- IO.println(s"Query:\n$query\n")
+      _            <- IO.println("checking db...")
+      result       <- sendQuery(query)
       resultString <- IO.pure(result.mkString("[", ", ", "]"))
-      interpreted <- interpretResult(question, query, resultString)
-      _ <- IO.println(s"$interpreted\n\n")
+      interpreted  <- interpretResult(question, query, resultString)
+      _            <- IO.println(s"$interpreted\n\n")
     yield ()
 
   /**
    * ask chat to generate a sql query
+   *
    * @param question the natural-language question to ask
    * @return IO-wrapped string of the generated query
    */
@@ -56,7 +56,53 @@ object Main extends IOApp.Simple:
     yield msg
 
   /**
+   * quick IO-abstraction over JDBC since all good
+   * Scala libs are type-safe and don't let you throw random
+   * SQL strings at it
+   *
+   * @param query the SQL string to execute
+   * @return a list of rows in the result set represented as json objects
+   */
+  private def sendQuery(query: String): IO[List[String]] =
+    dbConn.use: conn =>
+      dbStmt(conn).use: stmt =>
+        queryResult(stmt, query).use: resultSet =>
+          IO.blocking:
+            val metaData = resultSet.getMetaData
+            val columnCount = metaData.getColumnCount
+
+            var results = List.empty[String]
+            while resultSet.next() do
+              results = (1 to columnCount)
+                .map: i =>
+                  s"\"${metaData.getColumnName(i)}\": \"${resultSet.getString(i)}\""
+                .mkString("{", ", ", "}") :: results
+
+            results.reverse
+
+  private val dbConn = Resource.fromAutoCloseable:
+    IO.blocking:
+      val url = "jdbc:postgresql://localhost:5432/postgres"
+      val username = "docker"
+      val password = "docker"
+
+      Class.forName("org.postgresql.Driver")
+
+      DriverManager.getConnection(url, username, password)
+
+  private def dbStmt(conn: Connection) =
+    Resource.fromAutoCloseable:
+      IO.blocking:
+        conn.createStatement()
+
+  private def queryResult(stmt: Statement, query: String) =
+    Resource.fromAutoCloseable:
+      IO.blocking:
+        stmt.executeQuery(query)
+
+  /**
    * ask chat to interpret the result of hitting the db
+   *
    * @param question the question we originally asked
    * @param query the generated query
    * @param result a json-like representation of what the db returned
@@ -78,46 +124,3 @@ object Main extends IOApp.Simple:
           case ChatMessage.Assistant(content, _, _) => content.getOrElse("")
           case _ => ""
     yield msg
-
-  /**
-   * some really gross Java-style JDBC access since
-   * all of the scala sql libraries are really type-safe
-   * and won't let us execute arbitrary sql strings
-   * @param query the chat-generated sql query
-   * @return a list of rows as strings in the table
-   */
-  private def sendQuery(query: String): List[String] =
-    val url = "jdbc:postgresql://localhost:5432/postgres"
-    val username = "docker"
-    val password = "docker"
-
-    var connection: Connection = null
-    var statement: Statement = null
-    var resultSet: ResultSet = null
-
-    try
-      Class.forName("org.postgresql.Driver")
-
-      connection = DriverManager.getConnection(url, username, password)
-      statement = connection.createStatement()
-
-      resultSet = statement.executeQuery(query)
-
-      val metaData = resultSet.getMetaData
-      val columnCount = metaData.getColumnCount
-
-      var results = List.empty[String]
-
-      while resultSet.next() do
-        val rowStringBuilder = new StringBuilder()
-        for (i <- 1 to columnCount)
-          rowStringBuilder.append("{")
-          rowStringBuilder.append(s"\"${metaData.getColumnName(i)}\": ")
-          rowStringBuilder.append(s"\"${resultSet.getString(i)}\", ")
-          rowStringBuilder.append("}\n")
-          results = rowStringBuilder.result() :: results
-      results.reverse
-    finally
-      if (resultSet != null) resultSet.close()
-      if (statement != null) statement.close()
-      if (connection != null) connection.close()
